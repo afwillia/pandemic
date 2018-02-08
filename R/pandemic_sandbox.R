@@ -4,93 +4,154 @@
 #
 # ---------------------------
 
-cities <- c("algiers", "atlanta", "baghdad", "bangkok", "beijing", "bogota", "buenos_aires", "cairo",    
-            "chennai", "chicago", "delhi", "essen", "ho_chi_minh_city", "hong_kong", "istanbul", "jakarta", "johannesburg",
-            "karachi", "khartoum", "kinshasa", "kolkata", "lagos", "lima", "london", "los_angeles", "madrid", "manila",
-            "mexico_city", "miami", "milan", "montreal", "moscow", "mumbai", "new_york", "osaka", "paris", "riyadh", "san_francisco",
-            "santiago", "sao_paulo", "seoul", "shanghai", "st_petersberg", "sydney", "taipei", "tehran", "tokyo", "washington")   
-
-### Test board set up
-# shuffle infection cards
-setClass("card", representation(name = "character",
-                                removed = "logical"))
-
-
-infection_cards <- unname(sapply(ls(envir = city_env), function(x) eval(parse(text = x), envir = city_env)@name))
-
-# Shuffle infection deck
-infection_deck <- sample(infection_cards, length(infection_cards))
-
-cubes_left <- function(color, initial_n = 24) {
-  cube_slot <- paste0("cube_count_", color)
-  cubes_used <- sum(unname(sapply(ls(envir = city_env), function(x) slot(eval(parse(text = x), envir = city_env), 
-                                                                         cube_slot))))
-  initial_n - cubes_used
+source("cities.R")
+city_names <- ls(envir = city_env)
+# Program game constants
+game_setup <- function(cube_start = 24,
+                       player_card_start = 59,
+                       infection_rate_start = 2,
+                       outbreak_start = 1,
+                       n_city = 12,
+                       n_color = 4,
+                       max_infect = 3,
+                       seed = Sys.time()){
+  
+  set.seed(seed)
+  # Set up board
+  board <- list(cities = vector("list", length = n_city * n_color),
+       cured = c("black"=FALSE,
+                  "blue" = FALSE,
+                  "red" = FALSE,
+                  "yellow" = FALSE),
+       eradicated = c("black"=FALSE,
+                       "blue" = FALSE,
+                       "red" = FALSE,
+                       "yellow" = FALSE),
+       cubes_left = c("black"=cube_start,
+                       "blue" = cube_start,
+                       "red" = cube_start,
+                       "yellow" = cube_start),
+       outbreak_count = outbreak_start,
+       max_infect = max_infect,
+       turn = 1,
+       already_infected = c(),
+       infection_deck = c(),
+       infection_discard = c()
+  )
+  
+  # Add cities to board
+  for (city in city_names){
+    
+    city_obj <- city_env[[city]]
+    color <- city_obj@color
+    city_list <- list(city = city_obj@name,
+                      color = city_obj@color,
+                      connections = city_obj@connections,
+                      cubes = list(black = 0,
+                                   blue = 0,
+                                   red = 0,
+                                   yellow = 0))
+    add_to <- which.min(sapply(board[["cities"]], function(x) length(x) > 1))
+    board[["cities"]][[add_to]] <- city_list
+    
+  }
+  names(board$cities) <- city_names
+  
+  board[["infection_deck"]] <- sample(city_names, length(city_names))
+  return(board)
 }
 
-infect_cities <- function(city) {
-  city_obj <- eval(parse(text = city), envir = globalenv())
-  infect_color <- slot(city_obj, "color")
-  total_cubes <- cubes_left(infect_color)
-  if (total_cubes < 1) stop(sprintf("Game over: can't place more %s disease cubes.", infect_color))
-  cube_count <- slot(city_obj, paste0("cube_count_", infect_color))
-  if (cube_count < 3) {
-    slot(city_obj, paste0("cube_count_", infect_color)) <- cube_count + 1
-    return()
+
+
+infect_city <- function(board, city, infect_num = 1){
+  
+  # Check arguments
+  if (infect_num < 1 | infect_num > 3) stop("infect_num must be 1, 2, or 3.")
+  if (is.null(board[["cities"]][[city]])) stop("city is not on board.")
+  
+  # Has this city already been infected this turn?
+  if (city %in% board[["already_infected"]]) {
+    message(sprintf("%s has already been infected this draw", city))
+    return(board)
+  } else {
+    board[["already_infected"]] <- c(city, board[["already_infected"]])
   }
+  
+  # Is there an outbreak?
+  infect_color <- board[["cities"]][[city]][["color"]]
+    city_cubes <- board[["cities"]][[city]][["cubes"]][[infect_color]]
+    if (city_cubes >= 3){
+      outbreak(board, city)
+    } else { # if city_cubes >= 3
+      
+      # Is it possible to infect?
+      cubes_left <- board[["cubes_left"]][[infect_color]]
+      if (cubes_left < infect_num) {
+        message(sprintf("GAME OVER: Not enough %s cubes to infect %s", infect_color, city))
+        return(board)
+      }
+      else board[["cubes_left"]][[infect_color]] <- cubes_left - infect_num
+      
+      # Infect city according to outbreak algorithm
+      board[["cities"]][[city]][["cubes"]][[infect_color]] <- infect_num
+      
+      return(board)
+    } # end else if city_cubes >= 3
+
+}
+
+outbreak <- function(board, city){
+  
+  message(sprintf("OUTBREAK in %s", city))
+  board[["outbreak_count"]] <- board[["outbreak_count"]] + 1
+  if (board[["outbreak_count"]] > 7) {
+    warning("GAME OVER: Outbreak limit exceeded.")
+    return(board)
+  }
+  else{
+    outbreak_cities <- board[["cities"]][[city]][["connections"]]
+    board <- infect_city(board, oc, 1)
+    return(board)
+  }
+}
+
+draw_infection_card <- function(board, infect_num){
+  
+  infection_card <- board[["infection_deck"]][[1]]
+  board[["infection_deck"]] <- board[["infection_deck"]][-1]
+  board[["infection_discard"]] <- c(infection_card, board[["infection_discard"]])
+  board <- infect_city(board, infection_card, infect_num)
+  board[["already_infected"]] <- vector("character", 0)
+  return(board)
+  
   
 }
 
 
-list(
-  yellow = list(cubes_left = 24,
-                cured = FALSE,
-                eradicated = FALSE,
-                cities = list()),
-  red = list(cubes_left = 24,
-             cured = FALSE,
-             eradicated = FALSE,
-             cities = list()),
-  black = list(cubes_left = 24,
-               cured = FALSE,
-               eradicated = FALSE,
-               cities = list()),
-  blue = list(cubes_left = 24,
-              cured = FALSE,
-              eradicated = FALSE,
-              cities = list())
-)
 
-lapply(ls(envir = city_env), function(x){
-  obj <- eval(parse(text = x), envir = city_env)
-  list(color = obj@color, city = obj@name, connections = obj@connections, population = obj@population)
-})
+# Set up initial infection
+board <- game_setup()
 
+board <- draw_infection_card(board, 3)
+board <- draw_infection_card(board, 3)
+board <- draw_infection_card(board, 3)
+board <- draw_infection_card(board, 2)
+board <- draw_infection_card(board, 2)
+board <- draw_infection_card(board, 2)
+board <- draw_infection_card(board, 1)
+board <- draw_infection_card(board, 1)
+board <- draw_infection_card(board, 1)
 
-cube_start <- 24
-player_card_start <- 59
-infection_rate_start <- 2
-outbreak_start <- 1
-setClass("board", 
-         representation(cubes_remain_black = "numeric",
-                                   cubes_remain_blue = "numeric",
-                                   cubes_remain_yellow = "numeric",
-                                   cubes_remain_red = "numeric",
-                                   player_cards_remain = "numeric",
-                                   infection_rate = "numeric",
-                                   outbreak_counter = "numeric"),
-         prototype(cubes_remain_black = cube_start,
-                                        cubes_remain_blue = cube_start,
-                                        cubes_remain_yellow = cube_start,
-                                        cubes_remain_red = cube_start,
-                                        player_cards_remain = player_card_start,
-                                        infection_rate = infection_rate_start,
-                                        outbreak_counter = outbreak_start)
-         )
+infections <- do.call(rbind, lapply(board$cities, function(x) data.frame(x[['cubes']])))
+apply(infections, 2, sum)
+board$cubes_left
 
+connection_df <- do.call(rbind, lapply(board[["cities"]], function(x){
+  data.frame(city = x[["city"]], color = x[["color"]], connections = length(x[["connections"]]),
+             stringsAsFactors = FALSE)
+}))
 
-
-
+tapply(connection_df$connections, connection_df$color, sum)
 
 
 
