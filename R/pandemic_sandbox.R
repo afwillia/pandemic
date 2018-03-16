@@ -222,5 +222,14 @@ connection_df <- do.call(rbind, lapply(board[["cities"]], function(x){
 
 tapply(connection_df$connections, connection_df$color, sum)
 
+# Based on board state, how do we model Pr(winning)?
+# Start by modeling probabilities of certain events, like outbreaks or epidemics.
 
-
+# Probability of epidemics:
+# The probability of drawing a card is 
+#            (# player cards drawn since last possible epi)  /
+#            (# of player cards per epidemic card)
+#
+# Epidemic milestones, or places where epidemics can be drawn can be calculated at board set up
+# In fact, they are as part of the shuffling process.
+#   Number of player cards after dealing 
